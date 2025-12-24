@@ -1161,6 +1161,7 @@ function App() {
             {/* LIQUIDITY MODAL */}
             {showLiquidityModal && selectedToken && (
                 <LiquidityModal
+                    key={`liquidity-modal-${selectedToken}`}
                     tokenAddress={selectedToken}
                     userAddress={address}
                     qieBalance={qieBalance}
@@ -1177,7 +1178,7 @@ function App() {
                     onApprove={approveToken}
                     onAddLiquidity={handleAddLiquidity}
                     isApproveLoading={isApproveLoading || isApproveTxLoading}
-                    isApproveSuccess={isApproveSuccess || !needsTokenApproval}
+                    isApproveSuccess={isApproveSuccess}
                     needsApproval={needsTokenApproval}
                     qieBalance={qieBalance}
                     requiredQieAmount={requiredQieAmount}
@@ -1195,11 +1196,15 @@ function App() {
                     isWrapLoading={isWrapLoading || isWrapTxLoading}
                     isWrapSuccess={isWrapSuccess}
                     wrapError={wrapError}
+                    wrapData={wrapData}
                     isApproveWqieLoading={isApproveWqieLoading || isApproveWqieTxLoading}
-                    isApproveWqieSuccess={isApproveWqieSuccess || !needsWqieApproval}
+                    isApproveWqieSuccess={isApproveWqieSuccess}
+                    approveWqieData={approveWqieData}
                     needsWqieApproval={needsWqieApproval}
                     wqieBalance={wqieBalance}
                     wqieBalanceError={wqieBalanceError}
+                    approveTokenData={approveTokenData}
+                    addLiquidityData={addLiquidityData}
                     isConnected={isConnected}
                 />
             )}
@@ -1235,19 +1240,27 @@ function TokenCard({ tokenAddress, userAddress, onAddLiquidity, onHide }) {
         throwOnError: false,
     });
     
+    // Format supply and balance - ensure decimals is a number
+    // Convert to number in case it's BigInt or string
+    const decimals = tokenInfo.decimals ? Number(tokenInfo.decimals) : 18;
+    
     // Calculate price: reserve0 is WQIE, reserve1 is token
+    // Reserves are in raw units, so we need to account for decimals
+    // Price = (wqieReserve / 10^18) / (tokenReserve / 10^tokenDecimals)
+    //      = (wqieReserve * 10^tokenDecimals) / (tokenReserve * 10^18)
     let tokenPrice = null;
     if (reserves && Array.isArray(reserves) && reserves.length >= 2 && reserves[0] > 0n && reserves[1] > 0n) {
         const wqieReserve = reserves[0];
         const tokenReserve = reserves[1];
-        // Price = WQIE reserve / Token reserve (price per token in WQIE)
-        const priceInWqie = Number(wqieReserve) / Number(tokenReserve);
+        // WQIE has 18 decimals, token has variable decimals
+        const wqieDecimals = 18n;
+        const tokenDecimals = BigInt(decimals);
+        // Calculate: (wqieReserve * 10^tokenDecimals) / (tokenReserve * 10^18)
+        const numerator = wqieReserve * (10n ** tokenDecimals);
+        const denominator = tokenReserve * (10n ** wqieDecimals);
+        const priceInWqie = Number(numerator) / Number(denominator);
         tokenPrice = priceInWqie;
     }
-    
-    // Format supply and balance - ensure decimals is a number
-    // Convert to number in case it's BigInt or string
-    const decimals = tokenInfo.decimals ? Number(tokenInfo.decimals) : 18;
     
     // Format with proper decimals handling
     let formattedSupply = '0';
@@ -1736,6 +1749,10 @@ function LiquidityModal({
     wqieBalanceError,
     refetchWqieBalance,
     isConnected,
+    approveTokenData,
+    approveWqieData,
+    wrapData,
+    addLiquidityData,
 }) {
     const tokenInfo = useTokenInfo(tokenAddress);
     const tokenBalance = useTokenBalance(tokenAddress, userAddress);
@@ -1815,13 +1832,13 @@ function LiquidityModal({
                         </div>
                     )}
 
-                    {isApproveSuccess && (
+                    {isApproveSuccess && needsApproval && approveTokenData?.hash && (
                                         <div className="backdrop-blur-xl bg-green-500/20 border border-green-500/30 rounded-2xl p-4 text-sm text-green-200 shadow-lg">
                             ✅ Token approved! You can now supply liquidity.
                         </div>
                     )}
 
-                    {!needsApproval && (
+                    {!needsApproval && !isApproveSuccess && (
                                         <div className="backdrop-blur-xl bg-blue-500/20 border border-blue-500/30 rounded-2xl p-4 text-sm text-blue-200 shadow-lg">
                             ℹ️ Token already approved.
                         </div>
@@ -1833,19 +1850,19 @@ function LiquidityModal({
                         </div>
                     )}
 
-                    {isWrapSuccess && !isApproveWqieSuccess && (
+                    {isWrapSuccess && !isApproveWqieSuccess && wrapData?.hash && (
                                         <div className="backdrop-blur-xl bg-green-500/20 border border-green-500/30 rounded-2xl p-4 text-sm text-green-200 shadow-lg">
                             ✅ QIE wrapped to WQIE successfully! Now approve WQIE.
                         </div>
                     )}
 
-                    {isApproveWqieSuccess && (
+                    {isApproveWqieSuccess && needsWqieApproval && approveWqieData?.hash && (
                                         <div className="backdrop-blur-xl bg-green-500/20 border border-green-500/30 rounded-2xl p-4 text-sm text-green-200 shadow-lg">
                             ✅ WQIE approved! Ready to supply liquidity.
                         </div>
                     )}
 
-                    {!needsWqieApproval && isWrapSuccess && (
+                    {!needsWqieApproval && isWrapSuccess && !isApproveWqieSuccess && (
                                         <div className="backdrop-blur-xl bg-blue-500/20 border border-blue-500/30 rounded-2xl p-4 text-sm text-blue-200 shadow-lg">
                             ℹ️ WQIE already approved.
                         </div>
@@ -1930,7 +1947,7 @@ function LiquidityModal({
                         )}
 
                         {/* Step 4: Add Liquidity */}
-                        {isAddLiquiditySuccess ? (
+                        {isAddLiquiditySuccess && addLiquidityData?.hash ? (
                             <div className="space-y-2">
                                 <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-4 text-center">
                                     <div className="text-2xl mb-2">✅</div>
@@ -2021,12 +2038,20 @@ function PortfolioTokenCard({ tokenAddress, userAddress, onAddLiquidity }) {
     });
     
     // Calculate price: reserve0 is WQIE, reserve1 is token
+    // Reserves are in raw units, so we need to account for decimals
+    // Price = (wqieReserve / 10^18) / (tokenReserve / 10^tokenDecimals)
+    //      = (wqieReserve * 10^tokenDecimals) / (tokenReserve * 10^18)
     let tokenPrice = null;
     if (reserves && Array.isArray(reserves) && reserves.length >= 2 && reserves[0] > 0n && reserves[1] > 0n) {
         const wqieReserve = reserves[0];
         const tokenReserve = reserves[1];
-        // Price = WQIE reserve / Token reserve (price per token in WQIE)
-        const priceInWqie = Number(wqieReserve) / Number(tokenReserve);
+        // WQIE has 18 decimals, token has variable decimals
+        const wqieDecimals = 18n;
+        const tokenDecimals = BigInt(decimals);
+        // Calculate: (wqieReserve * 10^tokenDecimals) / (tokenReserve * 10^18)
+        const numerator = wqieReserve * (10n ** tokenDecimals);
+        const denominator = tokenReserve * (10n ** wqieDecimals);
+        const priceInWqie = Number(numerator) / Number(denominator);
         tokenPrice = priceInWqie;
     }
     

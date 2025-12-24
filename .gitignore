@@ -40,8 +40,11 @@ private-keys.txt
 # Hardhat files
 cache/
 artifacts/
+!src/artifacts/
 typechain-types/
 
 # Build outputs
 build/
 dist/
+
+.vercel
